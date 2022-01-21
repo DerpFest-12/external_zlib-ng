@@ -76,6 +76,21 @@ extern z_const char * const PREFIX(z_errmsg)[10]; /* indexed by 2-zlib_error */
 #define PRESET_DICT 0x20 /* preset dictionary flag in zlib header */
 
 #define ADLER32_INITIAL_VALUE 1 /* initial adler-32 hash value */
+#define CRC32_INITIAL_VALUE   0 /* initial crc-32 hash value */
+
+#define ZLIB_WRAPLEN 6      /* zlib format overhead */
+#define GZIP_WRAPLEN 18     /* gzip format overhead */
+
+#define DEFLATE_HEADER_BITS 3
+#define DEFLATE_EOBS_BITS   15
+#define DEFLATE_PAD_BITS    6
+#define DEFLATE_BLOCK_OVERHEAD ((DEFLATE_HEADER_BITS + DEFLATE_EOBS_BITS + DEFLATE_PAD_BITS) >> 3)
+/* deflate block overhead: 3 bits for block start + 15 bits for block end + padding to nearest byte */
+
+#define DEFLATE_QUICK_LIT_MAX_BITS 9
+#define DEFLATE_QUICK_OVERHEAD(x) ((x * (DEFLATE_QUICK_LIT_MAX_BITS - 8) + 7) >> 3)
+/* deflate_quick worst-case overhead: 9 bits per literal, round up to next byte (+7) */
+
 
         /* target dependencies */
 
@@ -238,19 +253,17 @@ void Z_INTERNAL   zng_cfree(void *opaque, void *ptr);
 #  define PREFETCH_RW(addr)     addr
 #endif /* (un)likely */
 
-#if defined(_MSC_VER)
+#if defined(__clang__) || defined(__GNUC__)
+#  define ALIGNED_(x) __attribute__ ((aligned(x)))
+#elif defined(_MSC_VER)
 #  define ALIGNED_(x) __declspec(align(x))
-#else
-#  if defined(__GNUC__)
-#    define ALIGNED_(x) __attribute__ ((aligned(x)))
-#  endif
 #endif
 
 #if defined(X86_FEATURES)
 #  include "arch/x86/x86.h"
 #elif defined(ARM_FEATURES)
 #  include "arch/arm/arm.h"
-#elif defined(POWER_FEATURES)
+#elif defined(PPC_FEATURES) || defined(POWER_FEATURES)
 #  include "arch/power/power.h"
 #elif defined(S390_FEATURES)
 #  include "arch/s390/s390.h"

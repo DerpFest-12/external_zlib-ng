@@ -13,6 +13,88 @@ macro(check_acle_intrinsics)
     set(CMAKE_REQUIRED_FLAGS)
 endmacro()
 
+macro(check_avx512_intrinsics)
+    if(CMAKE_C_COMPILER_ID MATCHES "Intel")
+        if(CMAKE_HOST_UNIX OR APPLE)
+            set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl")
+        else()
+            set(AVX512FLAG "/arch:AVX512")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        if(NOT NATIVEFLAG)
+            # For CPUs that can benefit from AVX512, it seems GCC generates suboptimal
+            # instruction scheduling unless you specify a reasonable -mtune= target
+            set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mtune=cascadelake")
+        endif()
+    elseif(MSVC)
+        set(AVX512FLAG "/ARCH:AVX512")
+    endif()
+    # Check whether compiler supports AVX512 intrinsics
+    set(CMAKE_REQUIRED_FLAGS "${AVX512FLAG}")
+    check_c_source_compile_or_run(
+        "#include <immintrin.h>
+        int main(void) {
+            __m512i x = _mm512_set1_epi8(2);
+            const __m512i y = _mm512_set_epi8(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                                              20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+                                              38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+                                              56, 57, 58, 59, 60, 61, 62, 63, 64);
+            x = _mm512_sub_epi8(x, y);
+            (void)x;
+            return 0;
+        }"
+        HAVE_AVX512_INTRIN
+    )
+
+    # Evidently both GCC and clang were late to implementing these
+    check_c_source_compile_or_run(
+        "#include <immintrin.h>
+        int main(void) {
+            __mmask16 a = 0xFF;
+            a = _knot_mask16(a);
+            (void)a;
+            return 0;
+        }"
+        HAVE_MASK_INTRIN
+    )
+    set(CMAKE_REQUIRED_FLAGS)
+endmacro()
+
+macro(check_avx512vnni_intrinsics)
+    if(CMAKE_C_COMPILER_ID MATCHES "Intel")
+        if(CMAKE_HOST_UNIX OR APPLE)
+            set(AVX512VNNIFLAG "-mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni")
+        else()
+            set(AVX512VNNIFLAG "/ARCH:AVX512")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        if(NOT NATIVEFLAG)
+            set(AVX512VNNIFLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni -mtune=cascadelake")
+        endif()
+    elseif(MSVC)
+        set(AVX512VNNIFLAG "/ARCH:AVX512")
+    endif()
+
+    # Check whether compiler supports AVX512vnni intrinsics
+    set(CMAKE_REQUIRED_FLAGS "${AVX512VNNIFLAG}")
+    check_c_source_compile_or_run(
+        "#include <immintrin.h>
+        int main(void) {
+            __m512i x = _mm512_set1_epi8(2);
+            const __m512i y = _mm512_set_epi8(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                                              20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+                                              38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+                                              56, 57, 58, 59, 60, 61, 62, 63, 64);
+            __m512i z = _mm512_setzero_epi32();
+            z = _mm512_dpbusd_epi32(z, x, y);
+            (void)z;
+            return 0;
+        }"
+        HAVE_AVX512VNNI_INTRIN
+    )
+    set(CMAKE_REQUIRED_FLAGS)
+endmacro()
+
 macro(check_avx2_intrinsics)
     if(CMAKE_C_COMPILER_ID MATCHES "Intel")
         if(CMAKE_HOST_UNIX OR APPLE)
@@ -84,6 +166,82 @@ macro(check_pclmulqdq_intrinsics)
     else()
         set(HAVE_PCLMULQDQ_INTRIN OFF)
     endif()
+endmacro()
+
+macro(check_vpclmulqdq_intrinsics)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        if(NOT NATIVEFLAG)
+            set(VPCLMULFLAG "-mvpclmulqdq")
+        endif()
+    endif()
+    # Check whether compiler supports VPCLMULQDQ intrinsics
+    if(NOT (APPLE AND "${ARCH}" MATCHES "i386"))
+        set(CMAKE_REQUIRED_FLAGS "${VPCLMULFLAG}")
+        check_c_source_compile_or_run(
+            "#include <immintrin.h>
+            int main(void) {
+                __m512i a = _mm512_setzero_si512();
+                __m512i b = _mm512_setzero_si512();
+                __m512i c = _mm512_clmulepi64_epi128(a, b, 0x10);
+                (void)c;
+                return 0;
+            }"
+            HAVE_VPCLMULQDQ_INTRIN
+        )
+        set(CMAKE_REQUIRED_FLAGS)
+    else()
+        set(HAVE_VPCLMULQDQ_INTRIN OFF)
+    endif()
+endmacro()
+
+macro(check_ppc_intrinsics)
+    # Check if compiler supports AltiVec
+    set(CMAKE_REQUIRED_FLAGS "-maltivec")
+    check_c_source_compiles(
+        "#include <altivec.h>
+        int main(void)
+        {
+            vector int a = vec_splats(0);
+            vector int b = vec_splats(0);
+            a = vec_add(a, b);
+            return 0;
+        }"
+        HAVE_ALTIVEC
+        )
+    set(CMAKE_REQUIRED_FLAGS)
+
+    if(HAVE_ALTIVEC)
+        set(PPCFLAGS "-maltivec")
+    endif()
+
+    set(CMAKE_REQUIRED_FLAGS "-maltivec -mno-vsx")
+    check_c_source_compiles(
+        "#include <altivec.h>
+        int main(void)
+        {
+            vector int a = vec_splats(0);
+            vector int b = vec_splats(0);
+            a = vec_add(a, b);
+            return 0;
+        }"
+        HAVE_NOVSX
+        )
+    set(CMAKE_REQUIRED_FLAGS)
+
+    if(HAVE_NOVSX)
+        set(PPCFLAGS "${PPCFLAGS} -mno-vsx")
+    endif()
+
+    # Check if we have what we need for AltiVec optimizations
+    set(CMAKE_REQUIRED_FLAGS "${PPCFLAGS}")
+    check_c_source_compiles(
+        "#include <sys/auxv.h>
+        int main() {
+            return (getauxval(AT_HWCAP) & PPC_FEATURE_HAS_ALTIVEC);
+        }"
+        HAVE_VMX
+    )
+    set(CMAKE_REQUIRED_FLAGS)
 endmacro()
 
 macro(check_power8_intrinsics)
@@ -162,25 +320,53 @@ macro(check_ssse3_intrinsics)
     )
 endmacro()
 
-macro(check_sse4_intrinsics)
+macro(check_sse41_intrinsics)
     if(CMAKE_C_COMPILER_ID MATCHES "Intel")
         if(CMAKE_HOST_UNIX OR APPLE)
-            set(SSE4FLAG "-msse4.2")
+            set(SSE41FLAG "-msse4.1")
         else()
-            set(SSE4FLAG "/arch:SSE4.2")
+            set(SSE41FLAG "/arch:SSE4.1")
         endif()
     elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
         if(NOT NATIVEFLAG)
-            set(SSE4FLAG "-msse4")
+            set(SSE41FLAG "-msse4.1")
+        endif()
+    endif()
+    # Check whether compiler supports SSE4.1 intrinsics
+    set(CMAKE_REQUIRED_FLAGS "${SSE41FLAG}")
+    check_c_source_compile_or_run(
+        "#include <immintrin.h>
+        int main(void) {
+            __m128i u, v, w;
+            u = _mm_set1_epi8(1);
+            v = _mm_set1_epi8(2);
+            w = _mm_sad_epu8(u, v);
+            (void)w;
+            return 0;
+        }"
+        HAVE_SSE41_INTRIN
+    )
+endmacro()
+
+macro(check_sse42_intrinsics)
+    if(CMAKE_C_COMPILER_ID MATCHES "Intel")
+        if(CMAKE_HOST_UNIX OR APPLE)
+            set(SSE42FLAG "-msse4.2")
+        else()
+            set(SSE42FLAG "/arch:SSE4.2")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        if(NOT NATIVEFLAG)
+            set(SSE42FLAG "-msse4.2")
         endif()
     endif()
     # Check whether compiler supports SSE4 CRC inline asm
-    set(CMAKE_REQUIRED_FLAGS "${SSE4FLAG}")
+    set(CMAKE_REQUIRED_FLAGS "${SSE42FLAG}")
     check_c_source_compile_or_run(
         "int main(void) {
             unsigned val = 0, h = 0;
         #if defined(_MSC_VER)
-            { __asm mov edx, h __asm mov eax, val __asm crc32 eax, edx __asm mov val, eax }
+            { __asm mov edx, h __asm mov eax, val __asm crc32 eax, edx __asm mov h, eax }
         #else
             __asm__ __volatile__ ( \"crc32 %1,%0\" : \"+r\" (h) : \"r\" (val) );
         #endif
